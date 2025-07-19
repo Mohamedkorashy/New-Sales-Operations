@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Chat</title>
+</head>
+<body>
+  <h1>اسأل Gemini</h1>
+  <textarea id="userInput" rows="4" cols="50" placeholder="اكتب سؤالك..."></textarea><br>
+  <button onclick="askGemini()">Send</button>
+  <p id="response"></p>
+
+  <script>
+    async function askGemini() {
+      const input = document.getElementById("userInput").value;
+      const response = await fetch("AIzaSyAYIL8R1-YZ9oSdxP5AEubnOroUs_CtY3Q", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: input }] }]
+        })
+      });
+      const data = await response.json();
+      document.getElementById("response").innerText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
+    }
+  </script>
+</body>
+</html>
