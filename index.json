@@ -1,0 +1,6 @@
+{
+  "name": "CH1 App",
+  "description": "A dashboard to view, filter, and sort real estate data from an uploaded Excel file.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
