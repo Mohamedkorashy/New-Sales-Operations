@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useCallback, ChangeEvent, DragEvent, FC, FormEvent, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -8,13 +9,25 @@ declare const XLSX: any;
 // --- DATA & TYPE DEFINITIONS ---
 
 interface UnitData {
-  'Unit Code': string;
-  'Building Type': string;
-  'Floor': number;
-  'Area (m²)': number;
-  'Ownership Status': 'Available' | 'Sold';
-  'Finishing': 'Finished' | 'Semi-Finished' | 'Core';
+    'Unit Code': string;
+    'Building Type'?: string;
+    'Floor'?: number | string;
+    'Area'?: number | string;
+    'Ownership Status'?: 'Available' | 'Sold' | string;
+    'Finishing'?: 'Finished' | 'Semi-Finished' | 'Core' | string;
+    'Zone'?: string;
+    'Rooms'?: number | string;
+    'Building'?: string;
+    'Type'?: string;
+    'Floor Status'?: string;
+    'Category'?: string;
+    'Views'?: string;
+    'Meter Price'?: number | string;
+    'Unit Status'?: string;
+    'Garage'?: string;
+    'Units finishing situation (Site)'?: string;
 }
+
 
 type Permission = 'manage_users' | 'manage_projects' | 'view_dashboard' | 'view_projects';
 
@@ -46,6 +59,8 @@ interface Project {
     completionDate: string;
     features: string[];
     unitTypes: string[];
+    detailedUnits?: UnitData[];
+    galleryImages?: string[];
 }
 
 interface Filters {
@@ -55,11 +70,12 @@ interface Filters {
 }
 
 interface Sort {
-  key: 'Area (m²)' | 'Floor';
+  key: 'Area' | 'Floor';
   direction: 'asc' | 'desc';
 }
 
 type Language = 'en' | 'ar';
+type UnitViewContext = { source: 'global' } | { source: 'project', projectId: number };
 
 // --- TRANSLATIONS ---
 const translations = {
@@ -93,10 +109,11 @@ const translations = {
     // Status Messages
     processingFile: "Processing your file...",
     fileReadError: "Failed to read the file.",
-    invalidFormatError: "Invalid Excel format. Make sure the sheet has columns: 'Unit Code', 'Building Type', 'Floor', 'Area (m²)', 'Ownership Status', 'Finishing'.",
+    invalidFormatError: "Invalid Excel format. Make sure the sheet has at least 'Unit Code' and 'Area' columns.",
     noMatch: "No units match the current filters.",
     uploadPrompt: "Upload your Excel file to view real estate data.",
     menuHint: "Use the menu button to access filters once data is loaded.",
+    uploadSuccess: "Successfully uploaded {count} units.",
 
     // Dashboard
     showingResults: "Showing",
@@ -106,6 +123,9 @@ const translations = {
     available: "Available",
     sold: "Sold",
     averageArea: "Average Area",
+    globalDashboard: "Global Unit Dashboard",
+    projectDashboard: "Unit Dashboard for: {projectName}",
+    ats: "ATS",
     
     // Controls
     searchUnitCode: "Search Unit Code",
@@ -125,6 +145,19 @@ const translations = {
     floor: "Floor",
     area: "Area (m²)",
     ownershipStatus: "Ownership Status",
+    zone: "Zone",
+    rooms: "Rooms",
+    building: "Building",
+    type: "Type",
+    floorStatus: "Floor Status",
+    category: "Category",
+    views: "Views",
+    meterPrice: "Meter Price",
+    unitStatus: "Unit Status",
+    garage: "Garage",
+    finishingSituation: "Finishing Situation (Site)",
+    addValuePlaceholder: "Click to edit...",
+
 
     // User Management
     userManagement: "User Management",
@@ -153,6 +186,7 @@ const translations = {
     keyFeatures: "Key Features",
     projectTypePageTitle: "{type} Projects",
     backToAllProjects: "Back to All Projects",
+    backToProject: "Back to Project",
     residential: "Residential",
     commercial: "Commercial",
     mixedUse: "Mixed-Use",
@@ -172,12 +206,21 @@ const translations = {
     confirmRemoval: "Confirm Removal",
     confirmRemovalMessage: "Are you sure you want to remove this project? This action cannot be undone.",
     projectName: "Project Name",
+    projectLogo: "Project Logo",
     description: "Description",
     status: "Status",
     featuresCommaSeparated: "Features (comma-separated)",
     unitTypes: "Unit Types",
     unitTypesCommaSeparated: "Unit Types (comma-separated)",
     formErrors: "Please fill out all required fields.",
+    unitDetails: "Unit Details",
+    unitsDetails: "Units Details",
+    projectHasUnits: "This project has {count} units on record.",
+    noProjectUnits: "No detailed unit information has been uploaded for this project.",
+    uploadUnits: "Upload Units",
+    uploadUnitsHelper: "Upload an Excel file with unit details.",
+    viewUnits: "View Units",
+    logoUploadHelper: "Click upload or drag an image here.",
 
     // Password Change
     changePassword: "Change Password",
@@ -220,11 +263,12 @@ const translations = {
     // Status Messages
     processingFile: "جاري معالجة ملفك...",
     fileReadError: "فشل في قراءة الملف.",
-    invalidFormatError: "تنسيق Excel غير صالح. تأكد من أن الورقة تحتوي على الأعمدة: 'Unit Code', 'Building Type', 'Floor', 'Area (m²)', 'Ownership Status', 'Finishing'.",
+    invalidFormatError: "تنسيق Excel غير صالح. تأكد من أن الورقة تحتوي على الأقل على عمودي 'Unit Code' و 'Area'.",
     noMatch: "لا توجد وحدات تطابق عوامل التصفية الحالية.",
     uploadPrompt: "قم برفع ملف Excel الخاص بك لعرض بيانات العقارات.",
     menuHint: "استخدم زر القائمة للوصول إلى عوامل التصفية بمجرد تحميل البيانات.",
-    
+    uploadSuccess: "تم رفع {count} وحدة بنجاح.",
+
     // Dashboard
     showingResults: "عرض",
     of: "من",
@@ -233,6 +277,9 @@ const translations = {
     available: "متاح",
     sold: "مباع",
     averageArea: "متوسط المساحة",
+    globalDashboard: "لوحة بيانات الوحدات العامة",
+    projectDashboard: "لوحة بيانات وحدات مشروع: {projectName}",
+    ats: "ATS",
 
     // Controls
     searchUnitCode: "بحث برقم الوحدة",
@@ -252,6 +299,18 @@ const translations = {
     floor: "الطابق",
     area: "المساحة (م²)",
     ownershipStatus: "حالة الملكية",
+    zone: "المنطقة",
+    rooms: "الغرف",
+    building: "المبنى",
+    type: "النوع",
+    floorStatus: "حالة الطابق",
+    category: "الفئة",
+    views: "الإطلالة",
+    meterPrice: "سعر المتر",
+    unitStatus: "حالة الوحدة",
+    garage: "موقف سيارة",
+    finishingSituation: "حالة التشطيب (الموقع)",
+    addValuePlaceholder: "انقر للتعديل...",
 
     // User Management
     userManagement: "إدارة المستخدمين",
@@ -280,6 +339,7 @@ const translations = {
     keyFeatures: "المميزات الرئيسية",
     projectTypePageTitle: "مشاريع {type}",
     backToAllProjects: "العودة إلى كل المشاريع",
+    backToProject: "العودة للمشروع",
     residential: "سكنية",
     commercial: "تجارية",
     mixedUse: "متعددة الاستخدامات",
@@ -299,12 +359,21 @@ const translations = {
     confirmRemoval: "تأكيد الإزالة",
     confirmRemovalMessage: "هل أنت متأكد من رغبتك في إزالة هذا المشروع؟ لا يمكن التراجع عن هذا الإجراء.",
     projectName: "اسم المشروع",
+    projectLogo: "شعار المشروع",
     description: "الوصف",
     status: "الحالة",
     featuresCommaSeparated: "المميزات (مفصولة بفاصلة)",
     unitTypes: "أنواع الوحدات",
     unitTypesCommaSeparated: "أنواع الوحدات (مفصولة بفاصلة)",
     formErrors: "يرجى ملء جميع الحقول المطلوبة.",
+    unitDetails: "تفاصيل الوحدات",
+    unitsDetails: "تفاصيل الوحدات",
+    projectHasUnits: "هذا المشروع به {count} وحدة مسجلة.",
+    noProjectUnits: "لم يتم رفع معلومات تفصيلية عن الوحدات لهذا المشروع.",
+    uploadUnits: "رفع الوحدات",
+    uploadUnitsHelper: "قم برفع ملف Excel بتفاصيل الوحدات.",
+    viewUnits: "عرض الوحدات",
+    logoUploadHelper: "انقر للرفع أو اسحب صورة إلى هنا.",
 
     // Password Change
     changePassword: "تغيير كلمة المرور",
@@ -325,7 +394,7 @@ const initialProjects: Project[] = [
     { 
         id: 7, 
         name: "Capital Height 1",
-        logo: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIz8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAEAABADASIAAhEBAxEB/8QAGwABAAMBAQEBAAAAAAAAAAAAAAUGBwQDAgH/xABGEAABAwMCAwQFBgsGBwAAAAABAgMEAAUGEQcSITFBURMUImFxFRYyVIGRk9IjQlJUobHB0uEIM2JzdIKisvA0NjdDRWOC/8QAGAEBAQEBAQAAAAAAAAAAAAAAAAECAwT/xAAgEQEAAgMAAwEBAQEAAAAAAAAAAQIRAxIhEzEyQVFh/9oADAMBAAIRAxEAPwDsoCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooqhcLtEtbKVyVne4rattCSpazzwEjma87/dIkWUiM64VPqISUtpKyknkFEDA+JqfU0zVvFFQXm+QLEyhyc4re4dqG0JKlrV1xpHM16WS+wL7HW/b3StKFbFpUkoUhWM4UDyNRXVFFAUUUUBRRRQFFFFAUGg14yXkR2HHnDtbbSVKPcAMmg8L3eYlht7k+esobQcJSkZU4s8koHUk1lVi4gvF5vLF3k3yLbnGGVobhQHEKQ2lWMqUpJ3KPTHSo9oal3y+xb7NnO3COhSy3AhNZaZQcgKUfylDGeQq/e4uGf3bMfu+2SGrg60rL8ZAW0heOQUk5APjiqjW41u/C9/wDE9w/+oK9uFrleLrc7q/d7m1PZSUtNpaWktNqByQjHTHIZ55zUqycP2rTqnFWphxDiwCsuvLdJIzjlRPPmeVe2nrBbNNwzCtLKmWilSsb1LOVEDJUSSeQA+AqbrFFFFAUUUUBRRRQFFFFAVGvdmiX+3uwZ4UplZBCkqKVJIOQQocjUqigMzwHwxA4cduciPd5VwefQGlF9KU4Sk55AZyTge7POrpwxY2eIpepkuSVzH0hCm1LCmQMAbgMd8DPXArQ6KDN3fhlAvV9kXeyXyZaH5gAkpaQlQWRyIyORxke6vThvhsOG7e5AuVylXB+Y6h9959KU7inBBSkA5BPTJ761OioooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooP/2Q==",
+        logo: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIz8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAEAABADASIAAhEBAxEB/8QAGwABAAMBAQEBAAAAAAAAAAAAAAUGBwQDAgH/xABGEAABAwMCAwQFBgsGBwAAAAABAgMEAAUGEQcSITFBURMUImFxFRYyVIGRk9IjQlJUobHB0uEIM2JzdIKisvA0NjdDRWOC/8QAGAEBAQEBAQAAAAAAAAAAAAAAAAECAwT/xAAgEQEAAgMAAwEBAQEAAAAAAAAAAQIRAxIhEzEyQVFh/9oADAMBAAIRAxEAPwDsoCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooqhcLtEtbKVyVne4rattCSpazzwEjma87/dIkWUiM64VPqISUtpKyknkFEDA+JqfU0zVvFFQXm+QLEyhyc4re4dqG0JKlrV1xpHM16WS+wL7HW/b3StKFbFpUkoUhWM4UDyNRXVFFAUUUUBRRRQFFFFAUGg14yXkR2HHnDtbbSVKPcAMmg8L3eYlht7k+esobQcJSkZU4s8koHUk1lVi4gvF5vLF3k3yLbnGGVobhQHEKQ2lWMqUpJ3KPTHSo9oal3y+xb7NnO3COhSy3AhNZaZQcgKUfylDGeQq/e4uGf3bMfu+2SGrg60rL8ZAW0heOQUk5APjiqjW41u/C9/wDE9w/+oK9uFrleLrc7q/d7m1PZSUtNpaWktNqByQjHTHIZ55zUqycP2rTqnFWphxDiwCsuvLdJIzjlRPPmeVe2nrBbNNwzCtLKmWilSsb1LOVEDJUSSeQA+AqbrFFFFAUUUUBRRRQFFFFAVGvdmiX+3uwZ4UplZBCkqKVJIOQQocjUqigMzwHwxA4cduciPd5VwefQGlF9KU4Sk55AZyTge7POrpwxY2eIpepkuSVzH0hCm1LCmQMAbgMd8DPXArQ6KDN3fhlAvV9kXeyXyZaH5gAkpaQlQWRyIyORxke6vThvhsOG7e5AuVylXB+Y6h9959KU7inBBSkA5BPTJ761OioooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooCiiigKKKKAooooP/2Q==",
         description: "Premier residential tower offering a mix of luxury apartments and penthouses with panoramic city views.", 
         status: "Ongoing",
         location: "New Capital City",
@@ -333,7 +402,9 @@ const initialProjects: Project[] = [
         units: 450,
         completionDate: "Q4 2025",
         features: ["Infinity Pool", "Sky Lounge", "24/7 Security", "Underground Parking"],
-        unitTypes: ["1-Bedroom Apartment", "2-Bedroom Apartment", "3-Bedroom Penthouse"]
+        unitTypes: ["1-Bedroom Apartment", "2-Bedroom Apartment", "3-Bedroom Penthouse"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 8, 
@@ -345,7 +416,9 @@ const initialProjects: Project[] = [
         units: 600,
         completionDate: "Q2 2026",
         features: ["Shared Sports Club", "Kids Area", "Commercial Strip", "Smart Home Ready"],
-        unitTypes: ["Studio", "1-Bedroom Apartment", "2-Bedroom Duplex"]
+        unitTypes: ["Studio", "1-Bedroom Apartment", "2-Bedroom Duplex"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 1, 
@@ -357,7 +430,9 @@ const initialProjects: Project[] = [
         units: 250,
         completionDate: "Q3 2025",
         features: ["Private Beach Access", "Clubhouse", "Water Features", "Gated Community"],
-        unitTypes: ["2-Bedroom Chalet", "3-Bedroom Villa", "Twin House"]
+        unitTypes: ["2-Bedroom Chalet", "3-Bedroom Villa", "Twin House"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 2, 
@@ -369,7 +444,9 @@ const initialProjects: Project[] = [
         units: 120,
         completionDate: "Q1 2025",
         features: ["High-speed Elevators", "Conference Center", "Rooftop Cafe", "Valet Parking"],
-        unitTypes: ["Small Office (50m²)", "Medium Office (120m²)", "Full Floor (500m²)"]
+        unitTypes: ["Small Office (50m²)", "Medium Office (120m²)", "Full Floor (500m²)"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 3, 
@@ -381,7 +458,9 @@ const initialProjects: Project[] = [
         units: 80,
         completionDate: "Q1 2027",
         features: ["Sea Views", "Outdoor Seating", "Anchor Stores", "Ample Parking"],
-        unitTypes: ["Retail Shop", "Food Court Unit", "Anchor Store Space"]
+        unitTypes: ["Retail Shop", "Food Court Unit", "Anchor Store Space"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 4, 
@@ -393,7 +472,9 @@ const initialProjects: Project[] = [
         units: 800,
         completionDate: "Q2 2022",
         features: ["Community Pools", "Landscaped Gardens", "On-site Supermarket", "24/7 Maintenance"],
-        unitTypes: ["Studio Apartment", "1-Bedroom Apartment", "2-Bedroom Apartment", "3-Bedroom Apartment"]
+        unitTypes: ["Studio Apartment", "1-Bedroom Apartment", "2-Bedroom Apartment", "3-Bedroom Apartment"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 5, 
@@ -405,7 +486,9 @@ const initialProjects: Project[] = [
         units: 150,
         completionDate: "Q4 2021",
         features: ["Fiber-optic Internet", "Meeting Rooms", "Incubation Center", "Food Court"],
-        unitTypes: ["Co-working Desk", "Private Office", "Custom Office Suite"]
+        unitTypes: ["Co-working Desk", "Private Office", "Custom Office Suite"],
+        detailedUnits: [],
+        galleryImages: [],
     },
     { 
         id: 6, 
@@ -417,7 +500,9 @@ const initialProjects: Project[] = [
         units: 50,
         completionDate: "Q3 2026",
         features: ["IMAX Cinema", "International Food Court", "Luxury Brand Outlets", "Multi-level Car Park"],
-        unitTypes: ["Inline Store", "Kiosk Space", "Restaurant Unit"]
+        unitTypes: ["Inline Store", "Kiosk Space", "Restaurant Unit"],
+        detailedUnits: [],
+        galleryImages: [],
     },
 ];
 
@@ -456,30 +541,30 @@ const useUsers = () => {
         }
     }, []);
 
-    const updateUserStorage = (updatedUsers: User[]) => {
+    const updateUserStorage = useCallback((updatedUsers: User[]) => {
         localStorage.setItem('app_users', JSON.stringify(updatedUsers));
         setUsers(updatedUsers);
-    };
+    }, []);
 
-    const addUser = (user: Pick<User, 'username' | 'password'>, permissions: Permission[]) => {
+    const addUser = useCallback((user: Pick<User, 'username' | 'password'>, permissions: Permission[]) => {
         const newUser: User = { ...user, role: 'user', permissions };
         const updatedUsers = [...users, newUser];
         updateUserStorage(updatedUsers);
-    };
+    }, [users, updateUserStorage]);
 
-    const deleteUser = (username: string) => {
+    const deleteUser = useCallback((username: string) => {
         const updatedUsers = users.filter(user => user.username !== username);
         updateUserStorage(updatedUsers);
-    };
+    }, [users, updateUserStorage]);
     
-    const updateUserPermissions = (username: string, permissions: Permission[]) => {
+    const updateUserPermissions = useCallback((username: string, permissions: Permission[]) => {
         const updatedUsers = users.map(user => 
             user.username === username ? { ...user, permissions } : user
         );
         updateUserStorage(updatedUsers);
-    };
+    }, [users, updateUserStorage]);
     
-    const changePassword = (username: string, currentPass: string, newPass: string): { success: boolean; messageKey: keyof typeof translations['en'] } => {
+    const changePassword = useCallback((username: string, currentPass: string, newPass: string): { success: boolean; messageKey: keyof typeof translations['en'] } => {
         const user = users.find(u => u.username === username);
 
         if (!user) {
@@ -497,7 +582,7 @@ const useUsers = () => {
         
         updateUserStorage(updatedUsers);
         return { success: true, messageKey: 'passwordChangedSuccess' };
-    };
+    }, [users, updateUserStorage]);
 
     return { users, addUser, deleteUser, updateUserPermissions, changePassword };
 };
@@ -521,12 +606,12 @@ const useProjects = () => {
         }
     }, []);
 
-    const updateProjectStorage = (updatedProjects: Project[]) => {
+    const updateProjectStorage = useCallback((updatedProjects: Project[]) => {
         localStorage.setItem('app_projects', JSON.stringify(updatedProjects));
         setProjects(updatedProjects);
-    };
+    }, []);
 
-    const saveProject = (projectToSave: Omit<Project, 'id'> & { id?: number }) => {
+    const saveProject = useCallback((projectToSave: Omit<Project, 'id' | 'detailedUnits'> & { id?: number, logo?: string }) => {
         let updatedProjects;
         if (projectToSave.id) {
             // Update existing project
@@ -534,20 +619,62 @@ const useProjects = () => {
         } else {
             // Add new project
             const newProject: Project = {
-                ...projectToSave,
+                ...(projectToSave as Omit<Project, 'id' | 'detailedUnits' | 'galleryImages'>),
                 id: new Date().getTime(), // Simple unique ID
+                detailedUnits: [],
+                galleryImages: [],
             };
             updatedProjects = [...projects, newProject];
         }
         updateProjectStorage(updatedProjects);
-    };
+    }, [projects, updateProjectStorage]);
 
-    const deleteProject = (id: number) => {
+    const deleteProject = useCallback((id: number) => {
         const updatedProjects = projects.filter(p => p.id !== id);
         updateProjectStorage(updatedProjects);
-    };
+    }, [projects, updateProjectStorage]);
 
-    return { projects, saveProject, deleteProject };
+    const addUnitsToProject = useCallback((projectId: number, units: UnitData[]) => {
+        const updatedProjects = projects.map(p => {
+            if (p.id === projectId) {
+                return { 
+                    ...p, 
+                    detailedUnits: units,
+                    units: units.length // Also update the total unit count
+                };
+            }
+            return p;
+        });
+        updateProjectStorage(updatedProjects);
+    }, [projects, updateProjectStorage]);
+    
+    const addGalleryImageToProject = useCallback((projectId: number, imageBase64: string) => {
+        const updatedProjects = projects.map(p => {
+            if (p.id === projectId) {
+                const newGalleryImages = [...(p.galleryImages || []), imageBase64];
+                return { ...p, galleryImages: newGalleryImages };
+            }
+            return p;
+        });
+        updateProjectStorage(updatedProjects);
+    }, [projects, updateProjectStorage]);
+
+    const deleteGalleryImageFromProject = useCallback((projectId: number, imageIndex: number) => {
+        const updatedProjects = projects.map(p => {
+            if (p.id === projectId) {
+                const newGalleryImages = p.galleryImages ? [...p.galleryImages] : [];
+                if (imageIndex >= 0 && imageIndex < newGalleryImages.length) {
+                    newGalleryImages.splice(imageIndex, 1);
+                }
+                return { ...p, galleryImages: newGalleryImages };
+            }
+            return p;
+        });
+        updateProjectStorage(updatedProjects);
+    }, [projects, updateProjectStorage]);
+
+
+    return { projects, saveProject, deleteProject, addUnitsToProject, addGalleryImageToProject, deleteGalleryImageFromProject };
 };
 
 
@@ -686,7 +813,7 @@ interface SidebarProps {
     isOpen: boolean;
     onClose: () => void;
     currentUser: CurrentUser | null;
-    onNavigate: (view: 'home' | 'users' | 'projects') => void;
+    onNavigate: (view: 'home' | 'users' | 'projects', resetContext?: boolean) => void;
     filters: Filters;
     sort: Sort;
     searchTerm: string;
@@ -733,7 +860,7 @@ const Sidebar: FC<SidebarProps> = ({
     if (!isOpen) return null;
 
     const handleNavigate = (view: 'home' | 'users' | 'projects') => {
-        onNavigate(view);
+        onNavigate(view, view === 'home');
         onClose(); // Close sidebar on navigation
     };
     
@@ -935,9 +1062,10 @@ interface ProjectCardProps {
     onMoreDetailsClick: (id: number) => void;
     onEditClick: (id: number) => void;
     onDeleteClick: (id: number) => void;
+    onViewProjectUnits: (id: number) => void;
 }
 
-const ProjectCard: FC<ProjectCardProps> = ({ project, language, currentUser, hasPermission, onTypeClick, onMoreDetailsClick, onEditClick, onDeleteClick }) => {
+const ProjectCard: FC<ProjectCardProps> = ({ project, language, currentUser, hasPermission, onTypeClick, onMoreDetailsClick, onEditClick, onDeleteClick, onViewProjectUnits }) => {
     const t = translations[language];
 
     const getStatusText = (status: Project['status']) => {
@@ -969,7 +1097,7 @@ const ProjectCard: FC<ProjectCardProps> = ({ project, language, currentUser, has
                     )}
                     {project.name}
                 </h3>
-                <span className={`project-status status-${project.status.toLowerCase()}`}>
+                <span className={`project-status status-${(project.status || '').toLowerCase()}`}>
                     {getStatusText(project.status)}
                 </span>
             </div>
@@ -1009,9 +1137,14 @@ const ProjectCard: FC<ProjectCardProps> = ({ project, language, currentUser, has
                 </ul>
             </div>
             <div className="project-card-footer">
-                <button className="more-details-button" onClick={() => onMoreDetailsClick(project.id)}>
-                    {t.moreDetails} <i className="fa-solid fa-arrow-right"></i>
-                </button>
+                <div className="project-card-main-actions">
+                    <button className="more-details-button" onClick={() => onMoreDetailsClick(project.id)}>
+                        {t.moreDetails} <i className="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button className="units-details-button" onClick={() => onViewProjectUnits(project.id)}>
+                        <i className="fa-solid fa-table-list"></i> {t.unitsDetails}
+                    </button>
+                </div>
                  {hasPermission('manage_projects') && (
                     <div className="project-admin-actions">
                         <button className="edit-details-button" title={t.editProject} onClick={() => onEditClick(project.id)}>
@@ -1038,9 +1171,10 @@ interface ProjectsPageProps {
     onDeleteClick: (id: number) => void;
     onAddNewProject: () => void;
     onNavigateToHome: () => void;
+    onViewProjectUnits: (id: number) => void;
 }
 
-const ProjectsPage: FC<ProjectsPageProps> = ({ projects, language, currentUser, hasPermission, onTypeClick, onMoreDetailsClick, onEditClick, onDeleteClick, onAddNewProject, onNavigateToHome }) => {
+const ProjectsPage: FC<ProjectsPageProps> = ({ projects, language, currentUser, hasPermission, onTypeClick, onMoreDetailsClick, onEditClick, onDeleteClick, onAddNewProject, onNavigateToHome, onViewProjectUnits }) => {
     const t = translations[language];
 
     return (
@@ -1070,6 +1204,7 @@ const ProjectsPage: FC<ProjectsPageProps> = ({ projects, language, currentUser, 
                         onMoreDetailsClick={onMoreDetailsClick}
                         onEditClick={onEditClick}
                         onDeleteClick={onDeleteClick}
+                        onViewProjectUnits={onViewProjectUnits}
                     />
                 ))}
             </div>
@@ -1088,9 +1223,10 @@ interface ProjectTypePageProps {
     onEditClick: (id: number) => void;
     onDeleteClick: (id: number) => void;
     onNavigateToHome: () => void;
+    onViewProjectUnits: (id: number) => void;
 }
 
-const ProjectTypePage: FC<ProjectTypePageProps> = ({ projects, projectType, language, currentUser, hasPermission, onBackToProjects, onMoreDetailsClick, onEditClick, onDeleteClick, onNavigateToHome }) => {
+const ProjectTypePage: FC<ProjectTypePageProps> = ({ projects, projectType, language, currentUser, hasPermission, onBackToProjects, onMoreDetailsClick, onEditClick, onDeleteClick, onNavigateToHome, onViewProjectUnits }) => {
     const t = translations[language];
     const filteredProjects = useMemo(() => projects.filter(p => p.type === projectType), [projects, projectType]);
     
@@ -1127,12 +1263,73 @@ const ProjectTypePage: FC<ProjectTypePageProps> = ({ projects, projectType, lang
                         onMoreDetailsClick={onMoreDetailsClick}
                         onEditClick={onEditClick}
                         onDeleteClick={onDeleteClick}
+                        onViewProjectUnits={onViewProjectUnits}
                     />
                 ))}
             </div>
         </div>
     );
 }
+
+// Helper function to normalize headers from Excel files
+const normalizeDataKeys = (data: any[]): UnitData[] => {
+    // A map from various possible header names (lowercase, no spaces/symbols) to the canonical key in UnitData
+    const keyMap: { [key: string]: keyof UnitData } = {
+        'unitcode': 'Unit Code',
+        'buildingtype': 'Building Type',
+        'floor': 'Floor',
+        'area': 'Area',
+        'aream2': 'Area', // Handles 'Area (m²)', 'Area m2', etc.
+        'ownershipstatus': 'Ownership Status',
+        'zone': 'Zone',
+        'rooms': 'Rooms',
+        'building': 'Building',
+        'type': 'Type',
+        'floorstatus': 'Floor Status',
+        'category': 'Category',
+        'views': 'Views',
+        'meterprice': 'Meter Price',
+        'unitstatus': 'Unit Status',
+        
+        // Aliases for Finishing
+        'finishing': 'Finishing',
+        'finishingstatus': 'Finishing',
+        'finishingsituation': 'Finishing',
+
+
+        // Aliases for Garage
+        'garage': 'Garage',
+        'garagestatus': 'Garage',
+        'garageavailable': 'Garage',
+
+        // Aliases for Finishing Situation
+        'unitsfinishingsituationsite': 'Units finishing situation (Site)',
+        'finishingsituationsite': 'Units finishing situation (Site)',
+        'situationfinishing': 'Units finishing situation (Site)',
+    };
+
+    return data.map(row => {
+        const newRow: { [key: string]: any } = {};
+        for (const key in row) {
+            if (Object.prototype.hasOwnProperty.call(row, key)) {
+                // Normalize by removing spaces, non-alphanumeric chars, and making it lowercase
+                const normalizedKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                const canonicalKey = keyMap[normalizedKey];
+                
+                if (canonicalKey) {
+                    // If a canonical key exists, use it. This is now much more robust.
+                    newRow[canonicalKey] = row[key];
+                } else {
+                    // if no mapping is found, keep the original (trimmed) key.
+                    // This preserves any extra columns from the Excel file.
+                    newRow[key.trim()] = row[key];
+                }
+            }
+        }
+        return newRow as UnitData;
+    });
+};
+
 
 interface ProjectDetailPageProps {
     projects: Project[];
@@ -1141,30 +1338,79 @@ interface ProjectDetailPageProps {
     currentUser: CurrentUser | null;
     hasPermission: (permission: Permission) => boolean;
     onBackToProjects: () => void;
-    onViewUnits: () => void;
+    onViewProjectUnits: (id: number) => void;
+    onAddUnitsToProject: (projectId: number, units: UnitData[]) => void;
+    addGalleryImageToProject: (projectId: number, imageBase64: string) => void;
+    deleteGalleryImageFromProject: (projectId: number, imageIndex: number) => void;
+    showNotification: (message: string, type: 'success' | 'error') => void;
     onEditClick: (id: number) => void;
     onDeleteClick: (id: number) => void;
     onNavigateToHome: () => void;
 }
 
-const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, language, currentUser, hasPermission, onBackToProjects, onViewUnits, onEditClick, onDeleteClick, onNavigateToHome }) => {
+const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, language, currentUser, hasPermission, onBackToProjects, onViewProjectUnits, onAddUnitsToProject, addGalleryImageToProject, deleteGalleryImageFromProject, showNotification, onEditClick, onDeleteClick, onNavigateToHome }) => {
     const t = translations[language];
     const project = useMemo(() => projects.find(p => p.id === projectId), [projects, projectId]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const unitFileInputRef = useRef<HTMLInputElement>(null);
 
     const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
+        if (e.target.files && e.target.files[0] && project) {
             const file = e.target.files[0];
-            // In a real app, you would handle the upload to a server or state management here.
-            // For now, we'll just log the file info to the console.
-            console.log("Selected file:", file.name, file.type, `${Math.round(file.size / 1024)} KB`);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                if (reader.result) {
+                    addGalleryImageToProject(project.id, reader.result as string);
+                    showNotification("Image uploaded successfully!", 'success');
+                } else {
+                    showNotification("Failed to read image file.", 'error');
+                }
+            };
+            reader.readAsDataURL(file);
         }
+        if(e.target) e.target.value = ''; // Reset file input
+    };
+
+    const handleUnitFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || !e.target.files[0] || !project) return;
+        const file = e.target.files[0];
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const fileData = event.target?.result;
+                if (!fileData) throw new Error(t.fileReadError);
+                
+                const workbook = XLSX.read(fileData, { type: 'binary' });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const rawJsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+                const jsonData = normalizeDataKeys(rawJsonData);
+
+                // Basic validation on normalized data
+                if (jsonData.length === 0 || !jsonData[0]['Unit Code'] || jsonData[0]['Area'] === undefined) {
+                    throw new Error(t.invalidFormatError);
+                }
+                
+                onAddUnitsToProject(projectId, jsonData);
+
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+                showNotification(errorMessage, 'error');
+            }
+        };
+        reader.onerror = () => {
+             showNotification(t.fileReadError, 'error');
+        }
+        reader.readAsBinaryString(file);
+        
+        if (e.target) e.target.value = '';
     };
 
     const triggerFileUpload = () => {
         fileInputRef.current?.click();
     };
-
 
     if (!project) {
         return (
@@ -1172,7 +1418,7 @@ const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, la
         );
     }
 
-    const { id, name, description, status, location, type, units, completionDate, features, unitTypes } = project;
+    const { id, name, description, status, location, type, units, completionDate, features, unitTypes, detailedUnits, galleryImages } = project;
     
     const getStatusText = (status: Project['status']) => {
         switch (status) {
@@ -1221,7 +1467,7 @@ const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, la
             <div className="project-detail-content">
                 <div className="project-main-details">
                     <div className="card">
-                        <span className={`project-status status-${status.toLowerCase()}`}>
+                        <span className={`project-status status-${(status || '').toLowerCase()}`}>
                             {getStatusText(status)}
                         </span>
                         <p className="project-description">{description}</p>
@@ -1284,20 +1530,70 @@ const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, la
                             )}
                         </div>
                         <div className="project-image-gallery">
-                            <i className="fa-solid fa-images"></i>
-                            <span>Gallery coming soon</span>
+                            {galleryImages && galleryImages.length > 0 ? (
+                                <div className="gallery-grid">
+                                    {galleryImages.map((imgSrc, index) => (
+                                        <div key={index} className="gallery-item">
+                                            <img src={imgSrc} alt={`Gallery image ${index + 1}`} />
+                                            {hasPermission('manage_projects') && (
+                                                <button
+                                                    className="delete-gallery-image-button"
+                                                    onClick={() => deleteGalleryImageFromProject(project.id, index)}
+                                                    title="Delete Image"
+                                                >
+                                                    <i className="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="gallery-empty-placeholder">
+                                    <i className="fa-solid fa-images"></i>
+                                    <span>No images in gallery.</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                      <div className="card">
+                        <h3>{t.unitDetails}</h3>
+                        <div className="unit-details-content">
+                            {detailedUnits && detailedUnits.length > 0 ? (
+                                <>
+                                    <p>{t.projectHasUnits.replace('{count}', detailedUnits.length.toString())}</p>
+                                    <button className="view-units-button" onClick={() => onViewProjectUnits(id)}>
+                                        <i className="fa-solid fa-table-list"></i> {t.unitsDetails}
+                                    </button>
+                                </>
+                            ) : (
+                                <p>{t.noProjectUnits}</p>
+                            )}
+
+                            {hasPermission('manage_projects') && (
+                                <div className="upload-units-section">
+                                    <button className="upload-units-button" onClick={() => unitFileInputRef.current?.click()}>
+                                        <i className="fa-solid fa-file-upload"></i> {t.uploadUnits}
+                                    </button>
+                                    <input
+                                        type="file"
+                                        ref={unitFileInputRef}
+                                        onChange={handleUnitFileUpload}
+                                        accept=".xlsx, .xls"
+                                        style={{ display: 'none' }}
+                                        aria-hidden="true"
+                                    />
+                                    <small>{t.uploadUnitsHelper}</small>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="card">
                         <h3>{t.map}</h3>
                         <div className="project-location-map">
                             <i className="fa-solid fa-map-location-dot"></i>
                             <span>Interactive map coming soon</span>
                         </div>
                     </div>
-                    <button className="view-units-button" onClick={onViewUnits}>
-                        <i className="fa-solid fa-building-user"></i> {t.viewAvailableUnits}
-                    </button>
                 </div>
             </div>
         </div>
@@ -1308,6 +1604,7 @@ const ProjectDetailPage: FC<ProjectDetailPageProps> = ({ projects, projectId, la
 interface ProjectFormData {
     id?: number;
     name?: string;
+    logo?: string;
     description?: string;
     status?: 'Ongoing' | 'Completed' | 'Planned';
     location?: string;
@@ -1320,7 +1617,7 @@ interface ProjectFormData {
 
 interface ProjectEditModalProps {
     project: Partial<Project> | null;
-    onSave: (project: Omit<Project, 'id'> & { id?: number }) => void;
+    onSave: (project: Omit<Project, 'id' | 'detailedUnits'> & { id?: number; logo?: string }) => void;
     onClose: () => void;
     language: Language;
 }
@@ -1329,10 +1626,27 @@ const ProjectEditModal: FC<ProjectEditModalProps> = ({ project, onSave, onClose,
     const t = translations[language];
     const [formData, setFormData] = useState<ProjectFormData>({});
     const [error, setError] = useState('');
+    const logoInputRef = useRef<HTMLInputElement>(null);
+    const [isDraggingLogo, setIsDraggingLogo] = useState(false);
 
     useEffect(() => {
-        setFormData(project ? { ...project, features: project.features?.join(', ') || '', unitTypes: project.unitTypes?.join(', ') || '' } : {
+        const isEditing = project && project.id;
+
+        const initialData: ProjectFormData = isEditing ? {
+            id: project.id,
+            name: project.name || '',
+            logo: project.logo || '',
+            description: project.description || '',
+            status: project.status || 'Planned',
+            location: project.location || '',
+            type: project.type || 'Residential',
+            units: project.units || 0,
+            completionDate: project.completionDate || '',
+            features: project.features?.join(', ') || '',
+            unitTypes: project.unitTypes?.join(', ') || ''
+        } : {
             name: '',
+            logo: '',
             description: '',
             status: 'Planned',
             location: '',
@@ -1341,17 +1655,62 @@ const ProjectEditModal: FC<ProjectEditModalProps> = ({ project, onSave, onClose,
             completionDate: '',
             features: '',
             unitTypes: ''
-        });
+        };
+
+        setFormData(initialData);
     }, [project]);
 
     const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({...prev, [name]: value}));
     };
+    
+    const processLogoFile = (file: File) => {
+        if (file && file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setFormData(prev => ({ ...prev, logo: reader.result as string }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleLogoChange = (e: ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            processLogoFile(e.target.files[0]);
+        }
+    };
+
+    const handleRemoveLogo = () => {
+        setFormData(prev => ({ ...prev, logo: '' }));
+        if (logoInputRef.current) {
+            logoInputRef.current.value = '';
+        }
+    };
+
+    const handleLogoDragEvents = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setIsDraggingLogo(true);
+        } else if (e.type === 'dragleave') {
+            setIsDraggingLogo(false);
+        }
+    };
+
+    const handleLogoDrop = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingLogo(false);
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            processLogoFile(e.dataTransfer.files[0]);
+        }
+    };
+
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
-        const { name, description, location, completionDate, units, status, type, id } = formData;
+        const { name, description, location, completionDate, units, status, type, id, logo } = formData;
         
         if (!name || !description || !location || !completionDate || !units) {
             setError(t.formErrors);
@@ -1366,8 +1725,9 @@ const ProjectEditModal: FC<ProjectEditModalProps> = ({ project, onSave, onClose,
             ? formData.unitTypes.split(',').map(f => f.trim()).filter(Boolean)
             : [];
             
-        const projectToSave: Omit<Project, 'id'> & { id?: number } = {
+        const projectToSave = {
             id,
+            logo,
             name,
             description,
             status: status || 'Planned',
@@ -1392,6 +1752,41 @@ const ProjectEditModal: FC<ProjectEditModalProps> = ({ project, onSave, onClose,
                     <div className="input-group">
                         <label htmlFor="name">{t.projectName}</label>
                         <input type="text" id="name" name="name" value={formData.name || ''} onChange={handleChange} required />
+                    </div>
+                     <div className="input-group">
+                        <label htmlFor="logo-upload">{t.projectLogo}</label>
+                        <div 
+                            className={`logo-upload-section ${isDraggingLogo ? 'drag-over' : ''}`}
+                            onDrop={handleLogoDrop}
+                            onDragEnter={handleLogoDragEvents}
+                            onDragOver={handleLogoDragEvents}
+                            onDragLeave={handleLogoDragEvents}
+                        >
+                            {formData.logo ? (
+                                <img src={formData.logo} alt="Project Logo Preview" className="logo-preview" />
+                            ) : (
+                                <div className="logo-placeholder"><i className="fa-solid fa-image"></i></div>
+                            )}
+                            <div className="logo-upload-controls">
+                                <input
+                                    type="file"
+                                    ref={logoInputRef}
+                                    onChange={handleLogoChange}
+                                    accept="image/png, image/jpeg, image/gif"
+                                    style={{ display: 'none' }}
+                                    id="logo-upload"
+                                />
+                                <button type="button" className="upload-button" onClick={() => logoInputRef.current?.click()}>
+                                    <i className="fa-solid fa-upload"></i> {t.upload}
+                                </button>
+                                {formData.logo && (
+                                    <button type="button" className="remove-button" onClick={handleRemoveLogo}>
+                                        <i className="fa-solid fa-trash-can"></i> {t.remove}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <small className="logo-upload-helper">{t.logoUploadHelper}</small>
                     </div>
                      <div className="input-group">
                         <label htmlFor="description">{t.description}</label>
@@ -1541,6 +1936,13 @@ interface NotificationProps {
 }
 
 const Notification: FC<NotificationProps> = ({ notification, onClear }) => {
+    useEffect(() => {
+        if (notification) {
+            const timer = setTimeout(onClear, 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [notification, onClear]);
+
     if (!notification) return null;
 
     return (
@@ -1554,7 +1956,7 @@ const Notification: FC<NotificationProps> = ({ notification, onClear }) => {
 
 const App: FC = () => {
   const { users, addUser, deleteUser, updateUserPermissions, changePassword } = useUsers();
-  const { projects, saveProject, deleteProject } = useProjects();
+  const { projects, saveProject, deleteProject, addUnitsToProject, addGalleryImageToProject, deleteGalleryImageFromProject } = useProjects();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [view, setView] = useState<'login' | 'home' | 'users' | 'projects' | 'projectType' | 'projectDetail'>('login');
@@ -1566,12 +1968,13 @@ const App: FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [data, setData] = useState<UnitData[]>([]);
+  const [unitViewContext, setUnitViewContext] = useState<UnitViewContext>({ source: 'global' });
   const [filters, setFilters] = useState<Filters>({
     buildingType: 'all',
     ownershipStatus: 'all',
     finishing: 'all',
   });
-  const [sort, setSort] = useState<Sort>({ key: 'Area (m²)', direction: 'desc' });
+  const [sort, setSort] = useState<Sort>({ key: 'Area', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1661,7 +2064,7 @@ const App: FC = () => {
     // Reset app state for a clean session next time
     setData([]);
     setFilters({ buildingType: 'all', ownershipStatus: 'all', finishing: 'all' });
-    setSort({ key: 'Area (m²)', direction: 'desc' });
+    setSort({ key: 'Area', direction: 'desc' });
     setSearchTerm('');
     setIsLoading(false);
     setError(null);
@@ -1669,14 +2072,11 @@ const App: FC = () => {
     setSelectedProjectId(null);
     setLoginError(null);
     setLoginAttempts(0);
+    setUnitViewContext({ source: 'global' });
   };
 
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
-    const timer = setTimeout(() => {
-        setNotification(null);
-    }, 4000);
-    return () => clearTimeout(timer);
   };
     
   const handlePasswordChange = (currentPass: string, newPass: string): { success: boolean; message: string } => {
@@ -1708,7 +2108,7 @@ const App: FC = () => {
       setEditingProject(null);
   };
 
-  const handleSaveProject = (project: Omit<Project, 'id'> & { id?: number }) => {
+  const handleSaveProject = (project: Omit<Project, 'id' | 'detailedUnits'> & { id?: number; logo?: string }) => {
       saveProject(project);
       handleCloseProjectModal();
   }
@@ -1731,6 +2131,11 @@ const App: FC = () => {
              setView('projects');
              setSelectedProjectId(null);
          }
+         // If we were viewing units of the deleted project, navigate home
+         if (unitViewContext.source === 'project' && unitViewContext.projectId === projectToDelete) {
+             setUnitViewContext({ source: 'global' });
+             setView('home');
+         }
      }
      handleCloseConfirmDeleteModal();
  };
@@ -1745,12 +2150,28 @@ const App: FC = () => {
       setView('projectDetail');
   };
   
-  const handleViewUnitsClick = () => {
-      if (hasPermission('view_dashboard')) {
+    const handleNavigation = (view: 'home' | 'users' | 'projects', resetContext?: boolean) => {
+        if (resetContext) {
+            setUnitViewContext({ source: 'global' });
+        }
+        setView(view);
+    };
+
+    const handleBackToProjectDetail = (id: number) => {
+        setSelectedProjectId(id);
+        setView('projectDetail');
+    };
+
+    const handleViewProjectUnits = (id: number) => {
+        setUnitViewContext({ source: 'project', projectId: id });
         setView('home');
-      }
-      // Maybe scroll to uploader or something in a future iteration
-  }
+    };
+
+    const handleAddUnitsToProject = (projectId: number, units: UnitData[]) => {
+        addUnitsToProject(projectId, units);
+        const message = t.uploadSuccess.replace('{count}', units.length.toString());
+        showNotification(message, 'success');
+    };
 
   const handleFileUpload = (file: File) => {
     setIsLoading(true);
@@ -1766,10 +2187,12 @@ const App: FC = () => {
         const workbook = XLSX.read(fileData, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData: UnitData[] = XLSX.utils.sheet_to_json(worksheet);
+        const rawJsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
 
-        // Basic validation
-        if (jsonData.length === 0 || !jsonData[0]['Unit Code'] || !jsonData[0]['Area (m²)']) {
+        const jsonData = normalizeDataKeys(rawJsonData);
+
+        // Basic validation on normalized data
+        if (jsonData.length === 0 || !jsonData[0]['Unit Code'] || jsonData[0]['Area'] === undefined) {
             throw new Error(t.invalidFormatError);
         }
 
@@ -1788,13 +2211,51 @@ const App: FC = () => {
     reader.readAsBinaryString(file);
   };
   
+  const dashboardData = useMemo(() => {
+    if (unitViewContext.source === 'project') {
+        const project = projects.find(p => p.id === unitViewContext.projectId);
+        return project?.detailedUnits || [];
+    }
+    return data;
+  }, [unitViewContext, projects, data]);
+
+
+  const handleUnitUpdate = (unitCode: string, field: keyof UnitData, value: string | number) => {
+    const updater = (units: UnitData[]): UnitData[] =>
+      units.map(unit => {
+        if (unit['Unit Code'] === unitCode) {
+          // Try to preserve number type for specific fields
+          const keysToKeepAsNumbers: (keyof UnitData)[] = ['Floor', 'Area', 'Meter Price', 'Rooms'];
+          const finalValue =
+            keysToKeepAsNumbers.includes(field) && typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== ''
+              ? Number(value)
+              : value;
+          return { ...unit, [field]: finalValue };
+        }
+        return unit;
+      });
+
+    if (unitViewContext.source === 'project') {
+      const projectId = unitViewContext.projectId;
+      const project = projects.find(p => p.id === projectId);
+      if (project && project.detailedUnits) {
+        const updatedUnits = updater(project.detailedUnits);
+        // This function saves to localStorage
+        addUnitsToProject(projectId, updatedUnits);
+      }
+    } else {
+      // This is an in-memory update for global data
+      setData(updater(data));
+    }
+  };
+
   const filteredAndSortedData = useMemo(() => {
-    let result = [...data];
+    let result = [...dashboardData];
 
     // Search
     if (searchTerm) {
         result = result.filter(item =>
-            item['Unit Code'].toLowerCase().includes(searchTerm.toLowerCase().trim())
+            (item['Unit Code'] || '').toString().toLowerCase().includes(searchTerm.toLowerCase().trim())
         );
     }
 
@@ -1809,22 +2270,22 @@ const App: FC = () => {
 
     // Sorting
     result.sort((a, b) => {
-        const valA = a[sort.key];
-        const valB = b[sort.key];
+        const valA = a[sort.key] || 0;
+        const valB = b[sort.key] || 0;
         if (valA < valB) return sort.direction === 'asc' ? -1 : 1;
         if (valA > valB) return sort.direction === 'asc' ? 1 : -1;
         return 0;
     });
 
     return result;
-  }, [data, filters, sort, searchTerm]);
+  }, [dashboardData, filters, sort, searchTerm]);
 
   const filterOptions = useMemo(() => {
-    const buildingTypes = [...new Set(data.map(item => item['Building Type']))].filter(Boolean);
-    const ownershipStatuses = [...new Set(data.map(item => item['Ownership Status']))].filter(Boolean);
-    const finishings = [...new Set(data.map(item => item['Finishing']))].filter(Boolean);
+    const buildingTypes = [...new Set(dashboardData.map(item => item['Building Type']))].filter(Boolean) as string[];
+    const ownershipStatuses = [...new Set(dashboardData.map(item => item['Ownership Status']))].filter(Boolean) as string[];
+    const finishings = [...new Set(dashboardData.map(item => item['Finishing']))].filter(Boolean) as string[];
     return { buildingTypes, ownershipStatuses, finishings };
-  }, [data]);
+  }, [dashboardData]);
 
   const handleFilterChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -1839,35 +2300,58 @@ const App: FC = () => {
   const clearFilters = () => {
       setFilters({ buildingType: 'all', ownershipStatus: 'all', finishing: 'all' });
       setSearchTerm('');
-      setSort({ key: 'Area (m²)', direction: 'desc' });
+      setSort({ key: 'Area', direction: 'desc' });
   }
 
   const renderView = () => {
     switch(view) {
-        case 'home':
+        case 'home': {
+            const isProjectView = unitViewContext.source === 'project';
+            const projectForUnits = isProjectView ? projects.find(p => p.id === unitViewContext.projectId) : null;
+
             return (
                 <>
-                    <FileUploader onFileUpload={handleFileUpload} language={language} />
+                    <div className="dashboard-header">
+                        <h2>{isProjectView && projectForUnits ? t.projectDashboard.replace('{projectName}', projectForUnits.name) : t.globalDashboard}</h2>
+                        {isProjectView && projectForUnits && (
+                            <button onClick={() => handleBackToProjectDetail(projectForUnits.id)} className="back-button">
+                                <i className="fa-solid fa-arrow-left"></i> {t.backToProject}
+                            </button>
+                        )}
+                    </div>
+                    {!isProjectView && <FileUploader onFileUpload={handleFileUpload} language={language} />}
                     {isLoading && <div className="status-message">{t.processingFile} <i className="fa-solid fa-spinner fa-spin"></i></div>}
                     {error && <div className="status-message error-message">{error}</div>}
-                    {data.length > 0 && (
+                    
+                    {dashboardData.length > 0 && (
                         <>
-                          <DashboardSummary data={data} language={language} />
+                          <DashboardSummary data={dashboardData} language={language} />
                           <div className="results-count">
-                              {t.showingResults} <strong>{filteredAndSortedData.length}</strong> {t.of} <strong>{data.length}</strong> {t.units}.
+                              {t.showingResults} <strong>{filteredAndSortedData.length}</strong> {t.of} <strong>{dashboardData.length}</strong> {t.units}.
                           </div>
-                          <UnitTable units={filteredAndSortedData} language={language} />
-                          {filteredAndSortedData.length === 0 && <div className="status-message">{t.noMatch}</div>}
+                          <UnitTable 
+                            units={filteredAndSortedData} 
+                            language={language}
+                            onUnitUpdate={handleUnitUpdate}
+                            canEdit={hasPermission('manage_projects')}
+                          />
+                          {filteredAndSortedData.length === 0 && !searchTerm && <div className="status-message">{t.noMatch}</div>}
                         </>
                     )}
-                    {!isLoading && data.length === 0 && !error && (
+                     {(dashboardData.length === 0 || (filteredAndSortedData.length === 0 && searchTerm)) && (
                       <div className="status-message">
-                          <p>{t.uploadPrompt}</p>
-                          <p style={{fontSize: '0.9rem', color: 'var(--text-secondary)'}}>{t.menuHint}</p>
+                          {!isLoading && !error && (
+                            <>
+                              {isProjectView && <p>{t.noProjectUnits}</p>}
+                              {!isProjectView && <p>{t.uploadPrompt}</p>}
+                              {filteredAndSortedData.length === 0 && searchTerm && <p>{t.noMatch}</p>}
+                            </>
+                          )}
                       </div>
                     )}
                 </>
             );
+        }
         case 'users':
             return currentUser ? <UserManagementPage 
               users={users} 
@@ -1890,6 +2374,7 @@ const App: FC = () => {
                 onDeleteClick={handleOpenConfirmDeleteModal}
                 onAddNewProject={() => handleOpenProjectModal()}
                 onNavigateToHome={() => setView('home')}
+                onViewProjectUnits={handleViewProjectUnits}
              />;
         case 'projectType':
             return selectedProjectType ? <ProjectTypePage 
@@ -1903,6 +2388,7 @@ const App: FC = () => {
                 onEditClick={handleOpenProjectModal}
                 onDeleteClick={handleOpenConfirmDeleteModal}
                 onNavigateToHome={() => setView('home')}
+                onViewProjectUnits={handleViewProjectUnits}
             /> : null;
         case 'projectDetail':
             return selectedProjectId ? <ProjectDetailPage
@@ -1912,7 +2398,11 @@ const App: FC = () => {
                 currentUser={currentUser}
                 hasPermission={hasPermission}
                 onBackToProjects={() => setView('projects')}
-                onViewUnits={handleViewUnitsClick}
+                onViewProjectUnits={handleViewProjectUnits}
+                onAddUnitsToProject={handleAddUnitsToProject}
+                addGalleryImageToProject={addGalleryImageToProject}
+                deleteGalleryImageFromProject={deleteGalleryImageFromProject}
+                showNotification={showNotification}
                 onEditClick={handleOpenProjectModal}
                 onDeleteClick={handleOpenConfirmDeleteModal}
                 onNavigateToHome={() => setView('home')}
@@ -1939,8 +2429,8 @@ const App: FC = () => {
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           currentUser={currentUser}
-          onNavigate={setView}
-          hasData={data.length > 0}
+          onNavigate={handleNavigation}
+          hasData={dashboardData.length > 0}
           filters={filters}
           sort={sort}
           searchTerm={searchTerm}
@@ -2083,8 +2573,8 @@ const Controls: FC<ControlsProps> = ({ filters, sort, searchTerm, options, onFil
              <div className="control-group">
                 <label htmlFor="sort">{t.sortBy}</label>
                 <select id="sort" name="sort" value={`${sort.key}-${sort.direction}`} onChange={onSortChange}>
-                    <option value="Area (m²)-desc">{t.areaHighToLow}</option>
-                    <option value="Area (m²)-asc">{t.areaLowToHigh}</option>
+                    <option value="Area-desc">{t.areaHighToLow}</option>
+                    <option value="Area-asc">{t.areaLowToHigh}</option>
                     <option value="Floor-desc">{t.floorHighToLow}</option>
                     <option value="Floor-asc">{t.floorLowToHigh}</option>
                 </select>
@@ -2101,11 +2591,28 @@ const DashboardSummary: FC<{ data: UnitData[], language: Language }> = ({ data, 
     const t = translations[language];
     const summary = useMemo(() => {
         const totalUnits = data.length;
-        const available = data.filter(u => u['Ownership Status'] === 'Available').length;
-        const sold = totalUnits - available;
-        const totalArea = data.reduce((sum, u) => sum + (u['Area (m²)'] || 0), 0);
+        let soldCount = 0;
+        let atsCount = 0;
+
+        data.forEach(u => {
+            const unitStatus = String(u['Unit Status'] || '').toLowerCase().trim();
+            const ownershipStatus = String(u['Ownership Status'] || '').toLowerCase().trim();
+            
+            if (unitStatus === 'ats') {
+                atsCount++;
+            } else {
+                const soldUnitStatuses = ['contracted', 'delivered', 'sold'];
+                if (ownershipStatus === 'sold' || soldUnitStatuses.includes(unitStatus)) {
+                    soldCount++;
+                }
+            }
+        });
+
+        const availableCount = totalUnits - soldCount - atsCount;
+        const totalArea = data.reduce((sum, u) => sum + (Number(u['Area']) || 0), 0);
         const avgArea = totalUnits > 0 ? (totalArea / totalUnits).toFixed(2) : 0;
-        return { totalUnits, available, sold, avgArea };
+
+        return { totalUnits, available: availableCount, sold: soldCount, ats: atsCount, avgArea };
     }, [data]);
 
     return (
@@ -2132,6 +2639,13 @@ const DashboardSummary: FC<{ data: UnitData[], language: Language }> = ({ data, 
                 </div>
             </div>
             <div className="stat-card">
+                <div className="stat-icon" style={{color: 'var(--info-color)'}}><i className="fa-solid fa-file-signature"></i></div>
+                <div className="stat-info">
+                    <span className="stat-value">{summary.ats}</span>
+                    <span className="stat-label">{t.ats}</span>
+                </div>
+            </div>
+            <div className="stat-card">
                  <div className="stat-icon"><i className="fa-solid fa-ruler-horizontal"></i></div>
                 <div className="stat-info">
                     <span className="stat-value">{summary.avgArea} m²</span>
@@ -2142,42 +2656,132 @@ const DashboardSummary: FC<{ data: UnitData[], language: Language }> = ({ data, 
     );
 };
 
-const UnitTable: FC<{ units: UnitData[], language: Language }> = ({ units, language }) => {
+interface EditableCellProps {
+    value: string | number | undefined;
+    onSave: (newValue: string | number) => void;
+    placeholder: string;
+    disabled: boolean;
+}
+
+const EditableCell: FC<EditableCellProps> = ({ value, onSave, placeholder, disabled }) => {
+    const cellRef = useRef<HTMLDivElement>(null);
+    
+    const handleBlur = () => {
+        if (disabled || !cellRef.current) return;
+        const newValueText = cellRef.current.innerText;
+        // Check if value actually changed to avoid unnecessary re-renders
+        if (newValueText !== String(value || '')) {
+            onSave(newValueText);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (disabled) return;
+        if (e.key === 'Enter') {
+            e.preventDefault(); // prevent new line
+            e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+            if (cellRef.current) {
+                cellRef.current.innerText = String(value || '');
+            }
+            e.currentTarget.blur();
+        }
+    };
+
+    return (
+        <div
+            ref={cellRef}
+            contentEditable={!disabled}
+            suppressContentEditableWarning={true}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            className={`editable-cell-content ${disabled ? 'disabled' : ''}`}
+            data-placeholder={!value ? placeholder : ''}
+            style={{cursor: disabled ? 'not-allowed' : 'text'}}
+        >
+            {value ? String(value) : ''}
+        </div>
+    );
+};
+
+interface UnitTableProps {
+    units: UnitData[];
+    language: Language;
+    onUnitUpdate: (unitCode: string, field: keyof UnitData, value: any) => void;
+    canEdit: boolean;
+}
+
+const UnitTable: FC<UnitTableProps> = ({ units, language, onUnitUpdate, canEdit }) => {
     const t = translations[language];
+    
+    const headers: (keyof UnitData)[] = [
+        'Unit Code', 'Building Type', 'Zone', 'Rooms', 'Building', 'Type', 'Floor', 'Floor Status', 'Area', 'Category', 'Views', 'Meter Price', 'Unit Status', 'Garage', 'Units finishing situation (Site)', 'Ownership Status', 'Finishing'
+    ];
+    
+    const headerTranslationMap: { [K in keyof UnitData]?: keyof typeof t } = {
+        'Unit Code': 'unitCode',
+        'Building Type': 'buildingType',
+        'Floor': 'floor',
+        'Area': 'area',
+        'Ownership Status': 'ownershipStatus',
+        'Finishing': 'finishing',
+        'Zone': 'zone',
+        'Rooms': 'rooms',
+        'Building': 'building',
+        'Type': 'type',
+        'Floor Status': 'floorStatus',
+        'Category': 'category',
+        'Views': 'views',
+        'Meter Price': 'meterPrice',
+        'Unit Status': 'unitStatus',
+        'Garage': 'garage',
+        'Units finishing situation (Site)': 'finishingSituation',
+    };
+
     return (
         <div className="table-container">
             <table>
                 <thead>
                     <tr>
-                        <th>{t.unitCode}</th>
-                        <th>{t.buildingType}</th>
-                        <th>{t.floor}</th>
-                        <th>{t.area}</th>
-                        <th>{t.finishing}</th>
-                        <th>{t.ownershipStatus}</th>
+                        {headers.map(header => {
+                            const translationKey = headerTranslationMap[header];
+                            const headerText = translationKey ? t[translationKey] : header;
+                            return <th key={header}>{headerText}</th>;
+                        })}
                     </tr>
                 </thead>
                 <tbody>
                     {units.map((unit) => (
                         <tr key={unit['Unit Code']}>
-                            <td>{unit['Unit Code']}</td>
-                            <td>{unit['Building Type']}</td>
-                            <td>{unit.Floor}</td>
-                            <td>{unit['Area (m²)']} m²</td>
-                            <td>
-                                {unit.Finishing ? (
-                                    <span className={`finishing-badge ${unit.Finishing.replace(' ', '-')}`}>
-                                        {unit.Finishing}
-                                    </span>
-                                ) : null}
-                            </td>
-                            <td>
-                                {unit['Ownership Status'] ? (
-                                    <span className={`status-badge ${unit['Ownership Status']}`}>
-                                        {unit['Ownership Status']}
-                                    </span>
-                                ) : null}
-                            </td>
+                            {headers.map(header => (
+                                <td key={header}>
+                                    {header === 'Finishing' || header === 'Ownership Status' ? (
+                                        // Keep badges for specific status columns
+                                        <>
+                                            {unit[header] && (
+                                                <span className={`${header === 'Finishing' ? 'finishing-badge' : 'status-badge'} ${String(unit[header] || '').replace(' ', '-')}`}>
+                                                     {String(unit[header])}
+                                                </span>
+                                            )}
+                                            {canEdit && (
+                                                <EditableCell
+                                                    value={unit[header]}
+                                                    onSave={(newValue) => onUnitUpdate(unit['Unit Code'], header, newValue)}
+                                                    placeholder={t.addValuePlaceholder}
+                                                    disabled={!canEdit}
+                                                />
+                                            )}
+                                        </>
+                                    ) : (
+                                        <EditableCell
+                                            value={unit[header]}
+                                            onSave={(newValue) => onUnitUpdate(unit['Unit Code'], header, newValue)}
+                                            placeholder={t.addValuePlaceholder}
+                                            disabled={!canEdit}
+                                        />
+                                    )}
+                                </td>
+                            ))}
                         </tr>
                     ))}
                 </tbody>
